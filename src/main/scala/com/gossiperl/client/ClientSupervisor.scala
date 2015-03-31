@@ -1,7 +1,10 @@
 package com.gossiperl.client
 
 import akka.actor.SupervisorStrategy.Escalate
-import akka.actor.{ActorLogging, OneForOneStrategy, Actor}
+import akka.actor._
+import akka.util.Timeout
+
+import scala.util.{Failure, Success}
 
 case class Connect(configuration:OverlayConfiguration)
 case class Disconnect(overlayName:String)
@@ -17,6 +20,7 @@ case class Read(digestType:String, binDigest:Array[Byte], digestInfo:List[AnyRef
 class ClientSupervisor extends Actor with ActorLogging {
 
     import scala.concurrent.duration._
+    import scala.concurrent.ExecutionContext.Implicits.global
 
     private val configurationStore = scala.collection.mutable.Map.empty[String, OverlayConfiguration]
 
@@ -30,10 +34,22 @@ class ClientSupervisor extends Actor with ActorLogging {
           case Some(f) =>
             log.error(s"Overlay ${configuration.overlayName} already exists.")
           case None =>
-            log.info("Overlay needs to be added")
+            log.debug(s"Requesting overlay ${configuration.overlayName}")
+            context.actorOf(Props(new OverlaySupervisor(configuration)), name = configuration.overlayName)
+            configurationStore.put( configuration.overlayName, configuration )
         }
+      case OverlayShutdownComplete(configuration) =>
+        configurationStore.remove(configuration.overlayName)
+        log.debug(s"Overlay ${configuration.overlayName} shutdown complete...")
       case Disconnect(overlayName) =>
-        log.info("Disconnecting to an overlay...")
+        overlayForConfiguration(overlayName) match {
+          case Some(_) =>
+            resolveOverlayActor(overlayName, a => {
+              log.debug(s"Requesting shutdown of overlay $overlayName")
+              a ! RequestShutdown()
+            } )
+          case None => log.error(s"Overlay $overlayName does not exist.")
+        }
       case CheckState(overlayName) =>
         log.info("Checking state of an overlay...")
       case Subscriptions(overlayName) =>
@@ -50,6 +66,21 @@ class ClientSupervisor extends Actor with ActorLogging {
 
     def overlayForConfiguration(overlayName:String):Option[OverlayConfiguration] = {
       configurationStore.get(overlayName)
+    }
+
+    private def resolveOverlayActor(overlayName:String, cb: ( ActorRef ) => Unit ):Unit = {
+      implicit val timeout = Timeout(1 seconds)
+      val f = context.actorSelection(s"$overlayName").resolveOne()
+      f onComplete { t =>
+        t match {
+          case Success(a) =>
+            log.debug(s"Actor for overlay $overlayName found.")
+            cb( a )
+          case Failure(ex) =>
+            log.info(s"Actor for overlay $overlayName not resolved. Error $ex.")
+            None
+        }
+      }
     }
 
 }
