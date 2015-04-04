@@ -30,7 +30,19 @@ class ClientTests extends WordSpec with Matchers with GivenWhenThen {
       t match {
         case Success(r) =>
           r ! Connect(config)
-          Thread.sleep(1000)
+          // test to see if we see the correct output...
+          Thread.sleep(2000)
+          val fcs = system.actorSelection(s"/user/client-supervisor/${config.overlayName}/${config.overlayName}-client-state").resolveOne()
+          fcs onComplete { t2 =>
+            t2 match {
+              case Success(r2) =>
+                r2 ! AckReceived
+                Thread.sleep(6000)
+                r2 ! RequestStop
+              case Failure(ex2) => ex2.printStackTrace()
+            }
+          }
+          Thread.sleep(8000)
           r ! Disconnect(config.overlayName)
           Thread.sleep(1000)
         case Failure(ex) => ex.printStackTrace()

@@ -77,7 +77,7 @@ class ClientSupervisor extends Actor with ActorLogging {
             log.debug(s"Actor for overlay $overlayName found.")
             cb( a )
           case Failure(ex) =>
-            log.info(s"Actor for overlay $overlayName not resolved. Error $ex.")
+            log.warning(s"Actor for overlay $overlayName not resolved. Error $ex.")
             None
         }
       }
