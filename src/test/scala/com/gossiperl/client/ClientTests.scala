@@ -12,7 +12,7 @@ import scala.util.{Failure, Success}
 
 class ClientTests extends FlatSpec with ShouldMatchers with GossiperlClient with AsyncAssertions with LazyLogging {
 
-  @volatile val receivedEvents = scala.collection.mutable.ArrayBuffer.empty[Option[FSMProtocol.ResponseCurrentState]]
+  val receivedEvents = scala.collection.mutable.ArrayBuffer.empty[Option[FSMProtocol.ResponseCurrentState]]
 
   val config = new OverlayConfiguration(
     overlayName = "gossiper_overlay_remote",

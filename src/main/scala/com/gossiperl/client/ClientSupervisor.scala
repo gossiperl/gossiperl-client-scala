@@ -68,23 +68,19 @@ class ClientSupervisor extends Actor with ActorLogging {
         } } )
       case CheckState(overlayName, p) =>
         log.debug(s"Requesting client state for overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", o => { o match {
-            case Some(a) =>
-              val f = a ? FSMProtocol.RequestCurrentState onComplete { t =>
-                t match {
-                  case Success(r) =>
-                    p.success( Some(r.asInstanceOf[FSMProtocol.ResponseCurrentState]) )
-                  case Failure(ex) =>
-                    p.failure( ex )
-                }
-              }
-            case None =>
-              log.error(s"Could not request client state for $overlayName. Overlay does not exist.")
-              sender ! None
-        } } )
+        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
+          case Some(a) =>
+            a ? FSMProtocol.RequestCurrentState onComplete {
+              case Success(r) =>  p.success( Some(r.asInstanceOf[FSMProtocol.ResponseCurrentState]) )
+              case Failure(ex) => p.failure( ex )
+            }
+          case None =>
+            log.error(s"Could not request client state for $overlayName. Overlay does not exist.")
+            sender ! None
+        } )
       case Subscriptions(overlayName) =>
         log.debug(s"Requesting subscriptions for overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", o => { o match {
+        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
           case Some(a) =>
             // TODO: try
             val f = a ? FSMProtocol.RequestSubscriptions
@@ -92,10 +88,10 @@ class ClientSupervisor extends Actor with ActorLogging {
           case None =>
             log.error(s"Could not request subscription for $overlayName. Overlay does not exist.")
             sender ! None
-        } } )
+        } )
       case Subscribe(overlayName, eventTypes) =>
         log.debug(s"Attempting subscribing to $eventTypes on overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", o => { o match {
+        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
           case Some( a ) =>
             // TODO: try
             val f = a ? FSMProtocol.RequestSubscribe( eventTypes )
@@ -103,16 +99,16 @@ class ClientSupervisor extends Actor with ActorLogging {
           case None =>
             log.error(s"Could not subscribe to $eventTypes on $overlayName. Overlay does not exist.")
             sender ! None
-        } } )
+        } )
       case Unsubscribe(overlayName, eventTypes) =>
         log.debug(s"Attempting unsubscribing from $eventTypes on overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", o => { o match {
+        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
           case Some(a) =>
             val f = a ? FSMProtocol.RequestUnsubscribe (eventTypes)
             sender ! Await.result (f, timeout.duration).asInstanceOf[FSMProtocol.ResponseUnsubscribe]
           case None =>
             log.error(s"Could not unsubscribe from $eventTypes on $overlayName. Overlay does not exist.")
-        } } )
+        } )
       case Send(overlayName, digestType, digestData) =>
         log.info("Sending a digest...")
       case Read(digestType, binDigest, digestInfo) =>
@@ -127,15 +123,12 @@ class ClientSupervisor extends Actor with ActorLogging {
       implicit val timeout = Timeout(1 seconds)
       overlayForConfiguration(overlayName) match {
         case Some(_) =>
-          val f = context.actorSelection(s"/user/${ClientSupervisor.actorName}/$actorPath").resolveOne()
-          f onComplete { t =>
-            t match {
-              case Success(a) =>
-                cb.apply( Some(a) )
-              case Failure(ex) =>
-                log.error(s"Could not load actor for $overlayName", ex)
-                cb.apply( None )
-            }
+          context.actorSelection(s"/user/${ClientSupervisor.actorName}/$actorPath").resolveOne() onComplete {
+            case Success(a) =>
+              cb.apply( Some(a) )
+            case Failure(ex) =>
+              log.error(s"Could not load actor for $overlayName", ex)
+              cb.apply( None )
           }
         case None =>
           log.error(s"Overlay $overlayName does not exist.")
