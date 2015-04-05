@@ -25,42 +25,38 @@ class ClientTests extends FlatSpec with ShouldMatchers with GossiperlClient with
 
   "Gossiperl client supervisor" should "behave" in {
 
-    withOverlay( config, o =>
-      o match {
-        case Some(proxy) =>
+    withOverlay( config, {
+      case Some(proxy) =>
 
-          import scala.concurrent.ExecutionContext.Implicits.global
-          implicit val timeout = Timeout(5 seconds)
+        import scala.concurrent.ExecutionContext.Implicits.global
+        implicit val timeout = Timeout(5 seconds)
 
-          Thread.sleep(1000)
-          proxy.currentState onComplete {
-            case Success(r) => receivedEvents += r
-            case Failure(ex) =>
-          }
-          Thread.sleep(2000)
+        Thread.sleep(1000)
+        proxy.currentState onComplete {
+          case Success(r) => receivedEvents += r
+          case Failure(ex) =>
+        }
+        Thread.sleep(2000)
 
-          val fcs = proxy.system.actorSelection(s"/user/${ClientSupervisor.actorName}/${config.overlayName}/${config.overlayName}-client-state").resolveOne()
-          fcs onComplete { t2 =>
-            t2 match {
-              case Success(r2) =>
-                r2 ! AckReceived
-                Thread.sleep(6000)
-                r2 ! RequestStop
-              case Failure(ex2) => ex2.printStackTrace()
-            }
-          }
+        val fcs = proxy.system.actorSelection(s"/user/${ClientSupervisor.actorName}/${config.overlayName}/${config.overlayName}-client-state").resolveOne()
+        fcs onComplete {
+          case Success(r2) =>
+            r2 ! AckReceived
+            Thread.sleep(6000)
+            r2 ! RequestStop
+          case Failure(ex2) => ex2.printStackTrace()
+        }
 
-          proxy.currentState onComplete {
-            case Success(r) => receivedEvents += r
-            case Failure(ex) =>
-          }
+        proxy.currentState onComplete {
+          case Success(r) => receivedEvents += r
+          case Failure(ex) =>
+        }
 
-          Thread.sleep(8000)
-          proxy.disconnect
-          Thread.sleep(1000)
-        case None => logger.error(s"Could not load proxy for $config, supervisor isn't running.")
-      }
-    )
+        Thread.sleep(8000)
+        proxy.disconnect
+        Thread.sleep(1000)
+      case None => logger.error(s"Could not load proxy for $config, supervisor isn't running.")
+    } )
 
     Thread.sleep(20000)
 
