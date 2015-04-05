@@ -13,3 +13,7 @@ libraryDependencies += "com.typesafe.akka" %% "akka-actor" % "2.3.9"
 libraryDependencies += "org.scalatest" %% "scalatest" % "2.0" % "test"
 
 libraryDependencies += "com.gossiperl" % "gossiperl-core" % "1.0.0"
+
+libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.1.3"
+
+libraryDependencies += "com.typesafe.scala-logging" %% "scala-logging-slf4j" % "2.1.2"
