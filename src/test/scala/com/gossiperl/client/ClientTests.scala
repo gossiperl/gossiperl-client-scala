@@ -12,7 +12,8 @@ import scala.util.{Failure, Success}
 
 class ClientTests extends FlatSpec with ShouldMatchers with GossiperlClient with AsyncAssertions with LazyLogging {
 
-  val receivedEvents = scala.collection.mutable.ArrayBuffer.empty[Option[FSMProtocol.ResponseCurrentState]]
+  val receivedEvents = scala.collection.mutable.ArrayBuffer.empty[Option[FSMState.ClientState]]
+  val receivedSubscriptionSeqs = scala.collection.mutable.ArrayBuffer.empty[Option[Seq[String]]]
 
   val config = new OverlayConfiguration(
     overlayName = "gossiper_overlay_remote",
@@ -22,6 +23,9 @@ class ClientTests extends FlatSpec with ShouldMatchers with GossiperlClient with
     overlayPort = 6666,
     clientPort = 54321
   )
+
+  val topics1 = Seq[String]("member_in", "member_out")
+  val topics2 = Seq[String]("custom_digest")
 
   "Gossiperl client supervisor" should "behave" in {
 
@@ -34,9 +38,45 @@ class ClientTests extends FlatSpec with ShouldMatchers with GossiperlClient with
         Thread.sleep(1000)
         proxy.currentState onComplete {
           case Success(r) => receivedEvents += r
-          case Failure(ex) =>
+          case Failure(ex) => logger.error("Error while executing test.", ex)
         }
         Thread.sleep(2000)
+
+        proxy.subscribe( topics1 )
+
+        Thread.sleep(1000)
+
+        proxy.subscriptions onComplete {
+          case Success(s) => receivedSubscriptionSeqs += s
+          case Failure(ex) => logger.error("Error while executing test.", ex)
+        }
+
+        proxy.subscribe( topics2 )
+
+        Thread.sleep(1000)
+
+        proxy.subscriptions onComplete {
+          case Success(s) => receivedSubscriptionSeqs += s
+          case Failure(ex) => logger.error("Error while executing test.", ex)
+        }
+
+        proxy.unsubscribe( topics1 )
+
+        Thread.sleep(1000)
+
+        proxy.subscriptions onComplete {
+          case Success(s) => receivedSubscriptionSeqs += s
+          case Failure(ex) => logger.error("Error while executing test.", ex)
+        }
+
+        proxy.unsubscribe( topics2 )
+
+        Thread.sleep(1000)
+
+        proxy.subscriptions onComplete {
+          case Success(s) => receivedSubscriptionSeqs += s
+          case Failure(ex) => logger.error("Error while executing test.", ex)
+        }
 
         val fcs = proxy.system.actorSelection(s"/user/${ClientSupervisor.actorName}/${config.overlayName}/${config.overlayName}-client-state").resolveOne()
         fcs onComplete {
@@ -60,7 +100,8 @@ class ClientTests extends FlatSpec with ShouldMatchers with GossiperlClient with
 
     Thread.sleep(20000)
 
-    receivedEvents.toList shouldEqual( List(Some(ResponseCurrentState(FSMState.ClientStateDisconnected)), Some(ResponseCurrentState(FSMState.ClientStateConnected))) )
+    receivedEvents.toList shouldEqual( List(Some(FSMState.ClientStateDisconnected), Some(FSMState.ClientStateConnected)) )
+    receivedSubscriptionSeqs.toList shouldEqual( List( Some(topics1), Some((topics1 ++ topics2).distinct.sorted), Some(topics2), Some(Seq.empty[String]) ) )
 
   }
 

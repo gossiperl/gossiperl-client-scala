@@ -16,13 +16,13 @@ object ClientSupervisorProtocol {
 
   case class Disconnect(overlayName:String)
 
-  case class CheckState(overlayName:String, p:Promise[ Option[ FSMProtocol.ResponseCurrentState ] ])
+  case class CheckState(overlayName:String, p:Promise[Option[FSMState.ClientState]])
 
-  case class Subscriptions(overlayName:String)
+  case class Subscriptions(overlayName:String, p:Promise[Option[Seq[String]]])
 
-  case class Subscribe(overlayName:String, eventTypes:Seq[String])
+  case class Subscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]])
 
-  case class Unsubscribe(overlayName:String, eventTypes:Seq[String])
+  case class Unsubscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]])
 
   case class Send(overlayName:String, digestType:String, digestData:List[AnyRef])
 
@@ -47,6 +47,8 @@ class ClientSupervisor extends Actor with ActorLogging {
 
     implicit val timeout = Timeout(5 seconds)
 
+    // TODO: most calls below can be generalised
+
     def receive = {
       case Connect(configuration) =>
         overlayForConfiguration( configuration.overlayName ) match {
@@ -70,44 +72,37 @@ class ClientSupervisor extends Actor with ActorLogging {
         log.debug(s"Requesting client state for overlay $overlayName")
         resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
           case Some(a) =>
-            a ? FSMProtocol.RequestCurrentState onComplete {
-              case Success(r) =>  p.success( Some(r.asInstanceOf[FSMProtocol.ResponseCurrentState]) )
-              case Failure(ex) => p.failure( ex )
-            }
+            a ! FSMProtocol.RequestCurrentState( p )
           case None =>
             log.error(s"Could not request client state for $overlayName. Overlay does not exist.")
-            sender ! None
+            p.success( None )
         } )
-      case Subscriptions(overlayName) =>
+      case Subscriptions(overlayName, p) =>
         log.debug(s"Requesting subscriptions for overlay $overlayName")
         resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
           case Some(a) =>
-            // TODO: try
-            val f = a ? FSMProtocol.RequestSubscriptions
-            sender ! Await.result( f, timeout.duration ).asInstanceOf[ FSMProtocol.ResponseSubscriptions ]
+            a ! FSMProtocol.RequestSubscriptions( p )
           case None =>
             log.error(s"Could not request subscription for $overlayName. Overlay does not exist.")
-            sender ! None
+            p.success( None )
         } )
-      case Subscribe(overlayName, eventTypes) =>
+      case Subscribe(overlayName, eventTypes, p) =>
         log.debug(s"Attempting subscribing to $eventTypes on overlay $overlayName")
         resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
           case Some( a ) =>
-            // TODO: try
-            val f = a ? FSMProtocol.RequestSubscribe( eventTypes )
-            sender ! Await.result( f, timeout.duration ).asInstanceOf[ FSMProtocol.ResponseSubscribe ]
+            a ! FSMProtocol.RequestSubscribe( eventTypes, p )
           case None =>
             log.error(s"Could not subscribe to $eventTypes on $overlayName. Overlay does not exist.")
-            sender ! None
+            p.success( None )
         } )
-      case Unsubscribe(overlayName, eventTypes) =>
+      case Unsubscribe(overlayName, eventTypes, p) =>
         log.debug(s"Attempting unsubscribing from $eventTypes on overlay $overlayName")
         resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
           case Some(a) =>
-            val f = a ? FSMProtocol.RequestUnsubscribe (eventTypes)
-            sender ! Await.result (f, timeout.duration).asInstanceOf[FSMProtocol.ResponseUnsubscribe]
+            a ! FSMProtocol.RequestUnsubscribe( eventTypes, p )
           case None =>
             log.error(s"Could not unsubscribe from $eventTypes on $overlayName. Overlay does not exist.")
+            p.success( None )
         } )
       case Send(overlayName, digestType, digestData) =>
         log.info("Sending a digest...")

@@ -2,6 +2,7 @@ package com.gossiperl.client
 
 import akka.actor.{ActorLogging, FSM}
 import concurrent.duration._
+import scala.concurrent.Promise
 import scala.util.{Failure, Success, Try}
 import FSMState._
 import FSMProtocol._
@@ -24,25 +25,13 @@ object FSMProtocol {
 
   case object RequestStop extends ClientProtocol
 
-  case object RequestSubscriptions extends ClientProtocol
+  case class RequestSubscriptions(p:Promise[Option[Seq[String]]]) extends ClientProtocol
 
-  case class ResponseSubscriptions(eventTypes : Seq[String]) extends ClientProtocol
+  case class RequestCurrentState( p:Promise[Option[ClientState]]) extends ClientProtocol
 
-  case object RequestCurrentState extends ClientProtocol
+  case class RequestSubscribe(eventTypes:Seq[String], p:Promise[Option[Seq[String]]]) extends ClientProtocol
 
-  case class ResponseCurrentState( state : ClientState ) extends ClientProtocol
-
-  case class RequestSubscribe(eventTypes:Seq[String]) extends ClientProtocol
-
-  case class ResponseSubscribe(eventTypes:Seq[String]) extends ClientProtocol
-
-  case class SubscribeError( ex : Throwable ) extends ClientProtocol
-
-  case class RequestUnsubscribe(eventTypes:Seq[String]) extends ClientProtocol
-
-  case class ResponseUnsubscribe(eventTypes:Seq[String]) extends ClientProtocol
-
-  case class UnsubscribeError( ex : Throwable ) extends ClientProtocol
+  case class RequestUnsubscribe(eventTypes:Seq[String], p:Promise[Option[Seq[String]]]) extends ClientProtocol
 
   case object Tick extends ClientProtocol
 
@@ -91,28 +80,28 @@ class ClientStateFSM(val configuration: OverlayConfiguration) extends FSM[Client
     case Event(RequestStop, _) =>
       log.debug( "Shutdown requested." )
       stop()
-    case Event(RequestSubscriptions, currentStateData) =>
-      sender ! ResponseSubscriptions( currentStateData.subscriptions )
+    case Event(RequestSubscriptions( p ), currentStateData) =>
+      p.success(Some(currentStateData.subscriptions))
       stay
-    case Event(RequestCurrentState, _) =>
-      sender ! ResponseCurrentState( stateName )
+    case Event(RequestCurrentState( p ), _) =>
+      p.success(Some(stateName))
       stay
-    case Event(RequestSubscribe(eventTypes), currentStateData) =>
-      Try( subscriptionAction( Subscribe, eventTypes ) ) match {
+    case Event(RequestSubscribe(eventTypes, p), currentStateData) =>
+      Try(subscriptionAction(Subscribe, eventTypes)) match {
         case Success(_) =>
-          sender ! ResponseSubscribe( eventTypes )
+          p.success( Some ( eventTypes ) )
           stay using new ClientStateData(configuration, (currentStateData.subscriptions ++ eventTypes).distinct.sorted, System.currentTimeMillis)
         case Failure(ex) =>
-          sender ! SubscribeError( ex )
+          p.failure( ex )
           stay
       }
-    case Event(RequestUnsubscribe(eventTypes), currentStateData) =>
-      Try( subscriptionAction( Unsubscribe, eventTypes ) ) match {
+    case Event(RequestUnsubscribe(eventTypes, p), currentStateData) =>
+      Try(subscriptionAction(Unsubscribe, eventTypes)) match {
         case Success(_) =>
-          sender ! ResponseUnsubscribe( eventTypes )
+          p.success( Some(eventTypes) )
           stay using new ClientStateData(configuration, ( currentStateData.subscriptions diff eventTypes ), System.currentTimeMillis)
         case Failure(ex) =>
-          sender ! UnsubscribeError( ex )
+          p.failure( ex )
           stay
       }
   }
