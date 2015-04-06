@@ -13,7 +13,7 @@ import ClientSupervisorProtocol._
 
 object ClientSupervisorProtocol {
 
-  case class Connect(configuration:OverlayConfiguration)
+  case class Connect(configuration:OverlayConfiguration, p:Promise[GossiperlProxy])
 
   case class Disconnect(overlayName:String)
 
@@ -40,7 +40,7 @@ class ClientSupervisor extends Actor with ActorLogging {
     import scala.concurrent.duration._
     import scala.concurrent.ExecutionContext.Implicits.global
 
-    private val configurationStore = MutableMap.empty[String, OverlayConfiguration]
+    private val proxyStore = MutableMap.empty[String, GossiperlProxy]
 
     override val supervisorStrategy = OneForOneStrategy(maxNrOfRetries = 10, withinTimeRange = 10 seconds) {
       case _:Exception => Escalate
@@ -51,17 +51,20 @@ class ClientSupervisor extends Actor with ActorLogging {
     // TODO: most calls below can be generalised
 
     def receive = {
-      case Connect(configuration) =>
-        overlayForConfiguration( configuration.overlayName ) match {
-          case Some(f) =>
-            log.error(s"Overlay ${configuration.overlayName} already exists.")
+      case Connect(configuration, p) =>
+        proxyForConfiguration( configuration.overlayName ) match {
+          case Some(proxy) =>
+            log.warning(s"Overlay ${configuration.overlayName} already exists.")
+            p.success( proxy )
           case None =>
             log.debug(s"Requesting overlay ${configuration.overlayName}")
             context.actorOf(Props(new OverlaySupervisor(configuration)), name = configuration.overlayName)
-            configurationStore.put( configuration.overlayName, configuration )
+            val proxy = new GossiperlProxy( context.system, configuration )
+            proxyStore.put( configuration.overlayName, proxy )
+            p.success( proxy )
         }
       case OverlayShutdownComplete(configuration) =>
-        configurationStore.remove(configuration.overlayName)
+        proxyStore.remove(configuration.overlayName)
         log.debug(s"Overlay ${configuration.overlayName} shutdown complete.")
       case Disconnect(overlayName) =>
         log.debug(s"Requesting shutdown for overlay $overlayName")
@@ -111,13 +114,13 @@ class ClientSupervisor extends Actor with ActorLogging {
         log.info("Reading a digest...")
     }
 
-    def overlayForConfiguration(overlayName:String):Option[OverlayConfiguration] = {
-      configurationStore.get(overlayName)
+    private def proxyForConfiguration(overlayName:String):Option[GossiperlProxy] = {
+      proxyStore.get(overlayName)
     }
 
     private def resolveOverlayActor(overlayName:String, actorPath:String, cb: Option[ActorRef] => Unit ):Unit = {
       implicit val timeout = Timeout(1 seconds)
-      overlayForConfiguration(overlayName) match {
+      proxyForConfiguration(overlayName) match {
         case Some(_) =>
           context.actorSelection(s"/user/${ClientSupervisor.actorName}/$actorPath").resolveOne() onComplete {
             case Success(a) =>
