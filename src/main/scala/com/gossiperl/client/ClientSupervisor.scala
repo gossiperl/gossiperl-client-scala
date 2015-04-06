@@ -3,9 +3,10 @@ package com.gossiperl.client
 import akka.actor.SupervisorStrategy.Escalate
 import akka.actor._
 import akka.util.Timeout
-import akka.pattern.ask
 
-import scala.concurrent.{Promise, Await}
+import scala.collection.mutable.{ Map => MutableMap }
+
+import scala.concurrent.Promise
 import scala.util.{Failure, Success}
 
 import ClientSupervisorProtocol._
@@ -39,7 +40,7 @@ class ClientSupervisor extends Actor with ActorLogging {
     import scala.concurrent.duration._
     import scala.concurrent.ExecutionContext.Implicits.global
 
-    private val configurationStore = scala.collection.mutable.Map.empty[String, OverlayConfiguration]
+    private val configurationStore = MutableMap.empty[String, OverlayConfiguration]
 
     override val supervisorStrategy = OneForOneStrategy(maxNrOfRetries = 10, withinTimeRange = 10 seconds) {
       case _:Exception => Escalate

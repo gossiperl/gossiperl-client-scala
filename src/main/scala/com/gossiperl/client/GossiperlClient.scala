@@ -1,13 +1,11 @@
 package com.gossiperl.client
 
-import akka.actor.ActorDSL._
 import akka.actor._
-import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.scalalogging.slf4j.LazyLogging
 import concurrent.duration._
-import scala.concurrent.{Future, Promise, Await}
-import scala.util.{Try, Failure, Success}
+import scala.concurrent.{Future, Promise}
+import scala.util.{Failure, Success}
 
 trait GossiperlClient {
 
@@ -17,15 +15,12 @@ trait GossiperlClient {
   def withOverlay( configuration: OverlayConfiguration, action: Option[GossiperlProxy] => Unit ):Unit = {
     import scala.concurrent.ExecutionContext.Implicits.global
     implicit val timeout = Timeout(5 seconds)
-    val f = system.actorSelection(s"/user/${ClientSupervisor.actorName}").resolveOne( timeout.duration )
-    f onComplete { t =>
-      t match {
-        case Success(a) =>
-          a ! ClientSupervisorProtocol.Connect( configuration )
-          action.apply( Some( new GossiperlProxy( system, configuration ) ) )
-        case Failure(ex) =>
-          action.apply( None )
-      }
+    system.actorSelection(s"/user/${ClientSupervisor.actorName}").resolveOne( timeout.duration ) onComplete {
+      case Success(a) =>
+        a ! ClientSupervisorProtocol.Connect( configuration )
+        action.apply( Some( new GossiperlProxy( system, configuration ) ) )
+      case Failure(ex) =>
+        action.apply( None )
     }
   }
 
