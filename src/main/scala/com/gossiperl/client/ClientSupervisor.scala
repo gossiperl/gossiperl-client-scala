@@ -13,21 +13,23 @@ import ClientSupervisorProtocol._
 
 object ClientSupervisorProtocol {
 
-  case class Connect(configuration:OverlayConfiguration, p:Promise[GossiperlProxy])
+  sealed trait ClientSupervisorAction
 
-  case class Disconnect(overlayName:String)
+  case class Connect(configuration:OverlayConfiguration, p:Promise[GossiperlProxy]) extends ClientSupervisorAction
 
-  case class CheckState(overlayName:String, p:Promise[Option[FSMState.ClientState]])
+  case class Disconnect(overlayName:String) extends ClientSupervisorAction
 
-  case class Subscriptions(overlayName:String, p:Promise[Option[Seq[String]]])
+  case class CheckState(overlayName:String, p:Promise[Option[FSMState.ClientState]]) extends ClientSupervisorAction
 
-  case class Subscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]])
+  case class Subscriptions(overlayName:String, p:Promise[Option[Seq[String]]]) extends ClientSupervisorAction
 
-  case class Unsubscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]])
+  case class Subscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]]) extends ClientSupervisorAction
 
-  case class Send(overlayName:String, digestType:String, digestData:List[AnyRef])
+  case class Unsubscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]]) extends ClientSupervisorAction
 
-  case class Read(digestType:String, binDigest:Array[Byte], digestInfo:List[AnyRef])
+  case class Send(overlayName:String, digestType:String, digestData:List[AnyRef]) extends ClientSupervisorAction
+
+  case class Read(digestType:String, binDigest:Array[Byte], digestInfo:List[AnyRef]) extends ClientSupervisorAction
 
 }
 
@@ -48,8 +50,6 @@ class ClientSupervisor extends Actor with ActorLogging {
 
     implicit val timeout = Timeout(5 seconds)
 
-    // TODO: most calls below can be generalised
-
     def receive = {
       case Connect(configuration, p) =>
         proxyForConfiguration( configuration.overlayName ) match {
@@ -68,10 +68,10 @@ class ClientSupervisor extends Actor with ActorLogging {
         log.debug(s"Overlay ${configuration.overlayName} shutdown complete.")
       case Disconnect(overlayName) =>
         log.debug(s"Requesting shutdown for overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName", o => { o match {
-            case Some(a) => a ! RequestShutdown()
-            case None => log.error(s"Could not request overlay $overlayName shutdown. Overlay does not exist.")
-        } } )
+        resolveOverlayActor(overlayName, s"$overlayName", {
+          case Some(a) => a ! RequestShutdown()
+          case None => log.error(s"Could not request overlay $overlayName shutdown. Overlay does not exist.")
+        } )
       case CheckState(overlayName, p) =>
         log.debug(s"Requesting client state for overlay $overlayName")
         resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
