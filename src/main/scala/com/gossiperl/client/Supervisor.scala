@@ -9,35 +9,35 @@ import scala.collection.mutable.{ Map => MutableMap }
 import scala.concurrent.Promise
 import scala.util.{Failure, Success}
 
-import ClientSupervisorProtocol._
+import SupervisorProtocol._
 
-object ClientSupervisorProtocol {
+object SupervisorProtocol {
 
-  sealed trait ClientSupervisorAction
+  sealed trait SupervisorAction
 
-  case class Connect(configuration:OverlayConfiguration, p:Promise[GossiperlProxy]) extends ClientSupervisorAction
+  case class Connect(configuration:OverlayConfiguration, p:Promise[GossiperlProxy]) extends SupervisorAction
 
-  case class Disconnect(overlayName:String) extends ClientSupervisorAction
+  case class Disconnect(overlayName:String) extends SupervisorAction
 
-  case class CheckState(overlayName:String, p:Promise[Option[FSMState.ClientState]]) extends ClientSupervisorAction
+  case class CheckState(overlayName:String, p:Promise[Option[FSMState.ClientState]]) extends SupervisorAction
 
-  case class Subscriptions(overlayName:String, p:Promise[Option[Seq[String]]]) extends ClientSupervisorAction
+  case class Subscriptions(overlayName:String, p:Promise[Option[Seq[String]]]) extends SupervisorAction
 
-  case class Subscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]]) extends ClientSupervisorAction
+  case class Subscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]]) extends SupervisorAction
 
-  case class Unsubscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]]) extends ClientSupervisorAction
+  case class Unsubscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]]) extends SupervisorAction
 
-  case class Send(overlayName:String, digestType:String, digestData:List[AnyRef]) extends ClientSupervisorAction
+  case class Send(overlayName:String, digestType:String, digestData:List[AnyRef]) extends SupervisorAction
 
-  case class Read(digestType:String, binDigest:Array[Byte], digestInfo:List[AnyRef]) extends ClientSupervisorAction
+  case class Read(digestType:String, binDigest:Array[Byte], digestInfo:List[AnyRef]) extends SupervisorAction
 
 }
 
-object ClientSupervisor {
+object Supervisor {
   val actorName = "gossiperl-client-supervisor"
 }
 
-class ClientSupervisor extends Actor with ActorLogging {
+class Supervisor extends Actor with ActorLogging {
 
     import scala.concurrent.duration._
     import scala.concurrent.ExecutionContext.Implicits.global
@@ -48,7 +48,7 @@ class ClientSupervisor extends Actor with ActorLogging {
       case _:Exception => Escalate
     }
 
-    implicit val timeout = Timeout(5 seconds)
+    implicit val timeout = Timeout(1 seconds)
 
     def receive = {
       case Connect(configuration, p) =>
@@ -58,18 +58,55 @@ class ClientSupervisor extends Actor with ActorLogging {
             p.success( proxy )
           case None =>
             log.debug(s"Requesting overlay ${configuration.overlayName}")
-            context.actorOf(Props(new OverlaySupervisor(configuration)), name = configuration.overlayName)
-            val proxy = new GossiperlProxy( context.system, configuration )
-            proxyStore.put( configuration.overlayName, proxy )
-            p.success( proxy )
+            val p2 = Promise[GossiperlProxy]
+            p2.future.onComplete {
+              case Success(proxy) =>
+                context.actorOf(Props(new OverlayWorker(configuration)), name = configuration.overlayName)
+                proxyStore.put( configuration.overlayName, proxy )
+                p.success( proxy )
+              case Failure(ex) =>  p.failure(ex)
+            }
+            context.actorOf(Props(new GossiperlProxy( configuration, p2 )), name=s"${configuration.overlayName}-proxy")
         }
-      case OverlayShutdownComplete(configuration) =>
-        proxyStore.remove(configuration.overlayName)
-        log.debug(s"Overlay ${configuration.overlayName} shutdown complete.")
       case Disconnect(overlayName) =>
         log.debug(s"Requesting shutdown for overlay $overlayName")
         resolveOverlayActor(overlayName, s"$overlayName", {
-          case Some(a) => a ! RequestShutdown()
+          case Some(a) =>
+            // What is going to happen, sequentially:
+            //  - supervisor requests the shutdown of overlay worker
+            //  - overlay worker requests shutdown of state
+            //  - state sends digestExit, digestExit will be sent with an ack, once ack is received by transport,
+            //    transport will issue an Unbind on itself, fulfill the promise for state and progress to transport stopped state
+            //  - state, in any promise case, will issue stop shutdown request for messaging, fulfill the promise of worker and stop itself
+            //  - worker, in any promise case, will fulfill the promise of the supervisor and stop itself
+            //  - supervisor, in any promise case, will issue shutdown request of the proxy actor
+            //  - in any case, result of the proxy removal will trigger state cleanup of the overlay - overlay will be considered removed
+            def requestProxyShutdown:Unit = {
+              context.system.actorSelection(s"/user/${Supervisor.actorName}/$overlayName-proxy") resolveOne() onComplete {
+                case Success(a) =>
+                  val p2 = Promise[ActorRef]
+                  p2.future.onComplete {
+                    case Success(_) =>
+                      proxyStore.remove(overlayName)
+                      log.debug(s"Shutdown of $overlayName complete.")
+                    case Failure(ex2) =>
+                      proxyStore.remove(overlayName)
+                      log.warning(s"Shutdown of $overlayName complete but there was an error while announcing shutdown of the proxy.", ex2)
+                  }
+                  a ! GossiperlProxyProtocol.ShutdownRequest( p2 )
+                case Failure(ex) =>
+                  proxyStore.remove(overlayName)
+                  log.error("Shutdown of the proxy could not be requested but the state is cleaned up.", ex)
+              }
+            }
+            val p = Promise[ActorRef]
+            p.future onComplete {
+              case Success(_) =>  requestProxyShutdown
+              case Failure(ex) =>
+                log.error("There was an error while requesting shutdown of the overlay worker. Proceeding with shutdown.", ex)
+                requestProxyShutdown
+            }
+            a ! GossiperlProxyProtocol.ShutdownRequest( p )
           case None => log.error(s"Could not request overlay $overlayName shutdown. Overlay does not exist.")
         } )
       case CheckState(overlayName, p) =>
@@ -122,7 +159,7 @@ class ClientSupervisor extends Actor with ActorLogging {
       implicit val timeout = Timeout(1 seconds)
       proxyForConfiguration(overlayName) match {
         case Some(_) =>
-          context.actorSelection(s"/user/${ClientSupervisor.actorName}/$actorPath").resolveOne() onComplete {
+          context.actorSelection(s"/user/${Supervisor.actorName}/$actorPath").resolveOne() onComplete {
             case Success(a) =>
               cb.apply( Some(a) )
             case Failure(ex) =>
