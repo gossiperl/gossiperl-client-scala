@@ -4,6 +4,7 @@ import java.util.UUID
 
 import akka.actor.{ActorRef, ActorLogging, FSM}
 import akka.util.Timeout
+import com.gossiperl.client.actors.ActorRegistry
 import com.gossiperl.client.thrift.{DigestExit, Digest}
 import com.gossiperl.client.transport.UdpTransportProtocol
 import concurrent.duration._
@@ -48,7 +49,7 @@ class StateData( val configuration:OverlayConfiguration,
   }
 }
 
-class State(val configuration: OverlayConfiguration) extends FSM[ClientState, StateData] with ActorLogging {
+class State(val configuration: OverlayConfiguration) extends FSM[ClientState, StateData] with ActorRegistry with ActorLogging {
 
   implicit val timeout = Timeout(1 seconds)
   import scala.concurrent.ExecutionContext.Implicits.global
@@ -113,22 +114,21 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
       digest.setHeartbeat( Util.getTimestamp )
       digest.setName( configuration.clientName )
       digest.setSecret( configuration.clientSecret )
-      context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}/${configuration.overlayName}-messaging/${configuration.overlayName}-transport") resolveOne() onComplete {
-        case Success(a) =>
-          val p2 = Promise[ActorRef]
-          p2.future.onComplete {
-            case Success(_) =>
-              p.success(self)
-              context.stop(self)
-            case Failure(ex) =>
-              log.error("There was an error while sending digest exit. Proceeding with shutdown.", ex)
-              p.failure(ex)
-              context.stop(self)
-          }
-          log.debug("Offering DigestExit.")
-          a ! UdpTransportProtocol.SendThrift( digest, Some( p2 ) )
-        case Failure(ex) =>
+      // handle state promise
+      val p2 = Promise[ActorRef]
+      log.debug("Offering DigestExit.")
+      !:( s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( digest, Some( p2 ) ) ) onFailure {
+        case ex =>
           log.error(s"Could not send digest exit. Messaging transport not found. Proceeding with shutdown.", ex)
+          p.failure(ex)
+          context.stop(self)
+      }
+      p2.future.onComplete {
+        case Success(_) =>
+          p.success(self)
+          context.stop(self)
+        case Failure(ex) =>
+          log.error("There was an error while sending digest exit. Proceeding with shutdown.", ex)
           p.failure(ex)
           context.stop(self)
       }
@@ -138,16 +138,10 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
   onTransition {
     case ClientStateDisconnected -> ClientStateConnected =>
       log.debug(s"Connected -> ${nextStateData}.")
-      context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-        case Success(a)  => a ! GossiperlProxyProtocol.Connected( configuration )
-        case Failure(ex) => log.warning("Could not forward connected notification. Proxy not found.")
-      }
+      !:( s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Connected( configuration ) )
     case ClientStateConnected -> ClientStateDisconnected =>
       log.debug("Connection lost.")
-      context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-        case Success(a)  => a ! GossiperlProxyProtocol.Disconnected( configuration )
-        case Failure(ex) => log.warning("Could not forward disconnected notification. Proxy not found.")
-      }
+      !:( s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Disconnected( configuration ) )
   }
 
   private def communicate():Unit = {
@@ -158,10 +152,7 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
     digest.setPort( configuration.clientPort )
     digest.setName( configuration.clientName )
     log.debug(s"Offering digest ${digest.getId}")
-    context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}/${configuration.overlayName}-messaging/${configuration.overlayName}-transport") resolveOne() onComplete {
-      case Success(a) => a ! UdpTransportProtocol.SendThrift( digest, None )
-      case Failure(ex) => log.warning(s"Could not send offered digest ${digest.getId}. Messaging not found.")
-    }
+    !:( s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( digest, None ) )
   }
 
   private def subscriptionAction( action : SubscriptionAction, eventTypes : Seq[String] ) : Boolean = {

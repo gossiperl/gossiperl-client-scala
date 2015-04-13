@@ -4,6 +4,7 @@ import java.util
 
 import akka.actor.{Props, ActorLogging, Actor}
 import akka.util.Timeout
+import com.gossiperl.client.actors.ActorRegistry
 import com.gossiperl.client.exceptions.GossiperlClientException
 import com.gossiperl.client.serialization.{Serializer, DeserializeResultForward, DeserializeResultError, DeserializeResultOK}
 import com.gossiperl.client.thrift._
@@ -12,7 +13,7 @@ import scala.collection.JavaConverters._
 
 import scala.util.{Failure, Success}
 
-class Messaging(val configuration: OverlayConfiguration) extends Actor with ActorLogging {
+class Messaging(val configuration: OverlayConfiguration) extends ActorRegistry with ActorLogging {
 
   import scala.concurrent.duration._
   import scala.concurrent.ExecutionContext.Implicits.global
@@ -35,51 +36,27 @@ class Messaging(val configuration: OverlayConfiguration) extends Actor with Acto
             case Serializer.DIGEST =>
               digestAck( result.asInstanceOf[DeserializeResultOK].getDigest.asInstanceOf[ Digest ] )
             case Serializer.DIGEST_ACK =>
-              context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}/${configuration.overlayName}-client-state") resolveOne() onComplete {
-                case Success(a)  => a ! FSMProtocol.AckReceived
-                case Failure(ex) => log.warning("Could not notify digest ack. No client state.")
-              }
+              !:(s"${configuration.overlayName}-client-state", FSMProtocol.AckReceived)
             case Serializer.DIGEST_EVENT =>
               val digest = result.asInstanceOf[ DeserializeResultOK ].getDigest.asInstanceOf[ DigestEvent ]
-              context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-                case Success(a)  => a ! GossiperlProxyProtocol.Event( configuration, digest.getEvent_type, digest.getEvent_object, digest.getHeartbeat )
-                case Failure(ex) => log.warning("Could not notify incoming event. No proxy.")
-              }
+              !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Event( configuration, digest.getEvent_type, digest.getEvent_object, digest.getHeartbeat ))
             case Serializer.DIGEST_SUBSCRIBE_ACK =>
               val digest = result.asInstanceOf[ DeserializeResultOK ].getDigest.asInstanceOf[ DigestSubscribeAck ]
-              context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-                case Success(a)  => a ! GossiperlProxyProtocol.SubscribeAck( configuration, digest.getEvent_types.asScala )
-                case Failure(ex) => log.warning("Could not notify incoming subscribe ack. No proxy.")
-              }
+              !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.SubscribeAck( configuration, digest.getEvent_types.asScala ))
             case Serializer.DIGEST_UNSUBSCRIBE_ACK =>
               val digest = result.asInstanceOf[ DeserializeResultOK ].getDigest.asInstanceOf[ DigestUnsubscribeAck ]
-              context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-                case Success(a)  => a ! GossiperlProxyProtocol.UnsubscribeAck( configuration, digest.getEvent_types.asScala )
-                case Failure(ex) => log.warning("Could not notify incoming unsubscribe ack. No proxy.")
-              }
+              !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.UnsubscribeAck( configuration, digest.getEvent_types.asScala ))
             case Serializer.DIGEST_FORWARDED_ACK =>
               val digest = result.asInstanceOf[ DeserializeResultOK ].getDigest.asInstanceOf[ DigestForwardedAck ]
-              context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-                case Success(a)  => a ! GossiperlProxyProtocol.ForwardAck( configuration, digest.getReply_id )
-                case Failure(ex) => log.warning("Could not notify incoming forward ack. No proxy.")
-              }
+              !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.ForwardAck( configuration, digest.getReply_id ))
             case _ =>
-              context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-                case Success(a) => a ! GossiperlProxyProtocol.Error( configuration, new GossiperlClientException(s"Unknown digest type ${result.asInstanceOf[DeserializeResultOK].getDigestType}") )
-                case Failure(_) => log.error("Could not notify unknown digest type. No proxy.")
-              }
+              !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, new GossiperlClientException(s"Unknown digest type ${result.asInstanceOf[DeserializeResultOK].getDigestType}") ))
           }
         case _:DeserializeResultError =>
-          context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-            case Success(a) => a ! GossiperlProxyProtocol.Error( configuration, result.asInstanceOf[DeserializeResultError].getCause )
-            case Failure(_) => log.error("Could not notify deserialize error. No proxy.")
-          }
+          !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, result.asInstanceOf[DeserializeResultError].getCause ))
         case _:DeserializeResultForward =>
           val data = result.asInstanceOf[ DeserializeResultForward ]
-          context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-            case Success(a)  => a ! GossiperlProxyProtocol.Forward( configuration, data.getDigestType, data.getBinaryEnvelope, data.getEnvelopeId )
-            case Failure(ex) => log.warning("Could not notify incoming forward ack. No proxy.")
-          }
+          !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Forward( configuration, data.getDigestType, data.getBinaryEnvelope, data.getEnvelopeId ))
         case _ => log.error(s"Skipping unknown incoming message ${result.getClass.getName}")
       }
   }
@@ -90,10 +67,7 @@ class Messaging(val configuration: OverlayConfiguration) extends Actor with Acto
     ack.setHeartbeat( Util.getTimestamp )
     ack.setReply_id( digest.getId )
     ack.setMembership( new util.ArrayList[DigestMember]() )
-    context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}/${configuration.overlayName}-messaging/${configuration.overlayName}-transport") resolveOne() onComplete {
-      case Success(a) => a ! UdpTransportProtocol.SendThrift( ack, None )
-      case Failure(ex) => log.warning(s"Could not send digestAck to ${digest.getId}. Transport not found.")
-    }
+    !:(s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( ack, None ))
   }
 
 }

@@ -3,6 +3,7 @@ package com.gossiperl.client
 import akka.actor.{ActorRef, ActorLogging, Actor}
 import akka.util.Timeout
 import com.gossiperl.client.SupervisorProtocol.SupervisorAction
+import com.gossiperl.client.actors.ActorRegistry
 
 import scala.concurrent.{Promise, Future}
 import scala.util.{Failure, Success}
@@ -22,7 +23,7 @@ object GossiperlProxyProtocol {
   case class ShutdownRequest( p: Promise[ActorRef] )
 }
 
-class GossiperlProxy( val configuration: OverlayConfiguration, p: Promise[GossiperlProxy] ) extends Actor with ActorLogging {
+class GossiperlProxy( val configuration: OverlayConfiguration, p: Promise[GossiperlProxy] ) extends ActorRegistry with ActorLogging {
 
   import scala.concurrent.ExecutionContext.Implicits.global
   implicit val timeout = Timeout(1 seconds)
@@ -107,11 +108,8 @@ class GossiperlProxy( val configuration: OverlayConfiguration, p: Promise[Gossip
     p.future
   }
 
-  private def action( action: SupervisorAction ):Future[Boolean] = {
-    val p = Promise[Boolean]; context.system.actorSelection(s"/user/${Supervisor.actorName}").resolveOne() onComplete {
-      case Success(a) =>  a ! action ; p.success(true)
-      case Failure(ex) => p.failure(ex)
-    }; p.future
+  private def action( action: SupervisorAction ):Future[ActorRef] = {
+    !:( Supervisor.actorName, action )
   }
 
 }

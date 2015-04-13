@@ -3,10 +3,11 @@ package com.gossiperl.client
 import akka.actor.SupervisorStrategy.Escalate
 import akka.actor._
 import akka.util.Timeout
+import com.gossiperl.client.actors.ActorRegistry
 
 import scala.collection.mutable.{ Map => MutableMap }
 
-import scala.concurrent.Promise
+import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success}
 
 import SupervisorProtocol._
@@ -37,7 +38,7 @@ object Supervisor {
   val actorName = "gossiperl-client-supervisor"
 }
 
-class Supervisor extends Actor with ActorLogging {
+class Supervisor extends ActorRegistry with ActorLogging {
 
     import scala.concurrent.duration._
     import scala.concurrent.ExecutionContext.Implicits.global
@@ -70,8 +71,8 @@ class Supervisor extends Actor with ActorLogging {
         }
       case Disconnect(overlayName) =>
         log.debug(s"Requesting shutdown for overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName", {
-          case Some(a) =>
+        proxyForConfiguration(overlayName) match {
+          case Some(_) =>
             // What is going to happen, sequentially:
             //  - supervisor requests the shutdown of overlay worker
             //  - overlay worker requests shutdown of state
@@ -82,69 +83,71 @@ class Supervisor extends Actor with ActorLogging {
             //  - supervisor, in any promise case, will issue shutdown request of the proxy actor
             //  - in any case, result of the proxy removal will trigger state cleanup of the overlay - overlay will be considered removed
             def requestProxyShutdown:Unit = {
-              context.system.actorSelection(s"/user/${Supervisor.actorName}/$overlayName-proxy") resolveOne() onComplete {
-                case Success(a) =>
-                  val p2 = Promise[ActorRef]
-                  p2.future.onComplete {
-                    case Success(_) =>
-                      proxyStore.remove(overlayName)
-                      log.debug(s"Shutdown of $overlayName complete.")
-                    case Failure(ex2) =>
-                      proxyStore.remove(overlayName)
-                      log.warning(s"Shutdown of $overlayName complete but there was an error while announcing shutdown of the proxy.", ex2)
-                  }
-                  a ! GossiperlProxyProtocol.ShutdownRequest( p2 )
+              val p2 = Promise[ActorRef]
+              !:( s"$overlayName-proxy", GossiperlProxyProtocol.ShutdownRequest( p2 ) ) onFailure {
+                case ex =>
+                  proxyStore.remove(overlayName)
+                  log.warning(s"\n ----------------------------------\n Shutdown of $overlayName complete but there was an error while announcing shutdown of the proxy. Proxy actor not found.\n ----------------------------------\n")
+              }
+              p2.future.onComplete {
+                case Success(_) =>
+                  proxyStore.remove(overlayName)
+                  log.debug(s"\n ----------------------------------\n Shutdown of $overlayName complete.\n ----------------------------------\n")
                 case Failure(ex) =>
                   proxyStore.remove(overlayName)
-                  log.error("Shutdown of the proxy could not be requested but the state is cleaned up.", ex)
+                  log.warning(s"\n ----------------------------------\n Shutdown of $overlayName complete but there was an error while announcing shutdown of the proxy.\n ----------------------------------\n")
               }
             }
             val p = Promise[ActorRef]
+            !:( overlayName, GossiperlProxyProtocol.ShutdownRequest( p ) ) onFailure {
+              case ex =>
+                log.error("There was an error while requesting shutdown of the overlay worker, worker actor not found. Proceeding with shutdown.", ex)
+                requestProxyShutdown
+            }
             p.future onComplete {
-              case Success(_) =>  requestProxyShutdown
+              case Success(_) => requestProxyShutdown
               case Failure(ex) =>
                 log.error("There was an error while requesting shutdown of the overlay worker. Proceeding with shutdown.", ex)
                 requestProxyShutdown
             }
-            a ! GossiperlProxyProtocol.ShutdownRequest( p )
           case None => log.error(s"Could not request overlay $overlayName shutdown. Overlay does not exist.")
-        } )
+        }
       case CheckState(overlayName, p) =>
         log.debug(s"Requesting client state for overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
-          case Some(a) =>
-            a ! FSMProtocol.RequestCurrentState( p )
-          case None =>
-            log.error(s"Could not request client state for $overlayName. Overlay does not exist.")
-            p.success( None )
-        } )
+        proxyForConfiguration(overlayName) match {
+          case Some(_) =>
+            !:( s"$overlayName-client-state", FSMProtocol.RequestCurrentState( p ) ) onFailure {
+              case ex => p.failure( ex )
+            }
+          case None => p.failure( new RuntimeException(s"Overlay $overlayName does not exist.") )
+        }
       case Subscriptions(overlayName, p) =>
         log.debug(s"Requesting subscriptions for overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
-          case Some(a) =>
-            a ! FSMProtocol.RequestSubscriptions( p )
-          case None =>
-            log.error(s"Could not request subscription for $overlayName. Overlay does not exist.")
-            p.success( None )
-        } )
+        proxyForConfiguration(overlayName) match {
+          case Some(_) =>
+            !:( s"$overlayName-client-state", FSMProtocol.RequestSubscriptions( p ) ) onFailure {
+              case ex => p.failure( ex )
+            }
+          case None => p.failure( new RuntimeException(s"Overlay $overlayName does not exist.") )
+        }
       case Subscribe(overlayName, eventTypes, p) =>
         log.debug(s"Attempting subscribing to $eventTypes on overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
-          case Some( a ) =>
-            a ! FSMProtocol.RequestSubscribe( eventTypes, p )
-          case None =>
-            log.error(s"Could not subscribe to $eventTypes on $overlayName. Overlay does not exist.")
-            p.success( None )
-        } )
+        proxyForConfiguration(overlayName) match {
+          case Some( _ ) =>
+            !:( s"$overlayName-client-state", FSMProtocol.RequestSubscribe( eventTypes, p ) ) onFailure {
+              case ex => p.failure(ex)
+            }
+          case None => p.failure( new RuntimeException(s"Overlay $overlayName does not exist.") )
+        }
       case Unsubscribe(overlayName, eventTypes, p) =>
         log.debug(s"Attempting unsubscribing from $eventTypes on overlay $overlayName")
-        resolveOverlayActor(overlayName, s"$overlayName/$overlayName-client-state", {
-          case Some(a) =>
-            a ! FSMProtocol.RequestUnsubscribe( eventTypes, p )
-          case None =>
-            log.error(s"Could not unsubscribe from $eventTypes on $overlayName. Overlay does not exist.")
-            p.success( None )
-        } )
+        proxyForConfiguration(overlayName) match {
+          case Some(_) =>
+            !:(s"$overlayName-client-state", FSMProtocol.RequestUnsubscribe( eventTypes, p ) ) onFailure {
+              case ex => p.failure(ex)
+            }
+          case None => p.failure( new RuntimeException(s"Overlay $overlayName does not exist.") )
+        }
       case Send(overlayName, digestType, digestData) =>
         log.info("Sending a digest...")
       case Read(digestType, binDigest, digestInfo) =>
@@ -153,23 +156,6 @@ class Supervisor extends Actor with ActorLogging {
 
     private def proxyForConfiguration(overlayName:String):Option[GossiperlProxy] = {
       proxyStore.get(overlayName)
-    }
-
-    private def resolveOverlayActor(overlayName:String, actorPath:String, cb: Option[ActorRef] => Unit ):Unit = {
-      implicit val timeout = Timeout(1 seconds)
-      proxyForConfiguration(overlayName) match {
-        case Some(_) =>
-          context.actorSelection(s"/user/${Supervisor.actorName}/$actorPath").resolveOne() onComplete {
-            case Success(a) =>
-              cb.apply( Some(a) )
-            case Failure(ex) =>
-              log.error(s"Could not load actor for $overlayName", ex)
-              cb.apply( None )
-          }
-        case None =>
-          log.error(s"Overlay $overlayName does not exist.")
-          cb.apply( None )
-      }
     }
 
 }

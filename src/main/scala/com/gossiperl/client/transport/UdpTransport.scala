@@ -6,6 +6,7 @@ import akka.actor.{ActorRef, ActorLogging, Actor}
 import akka.io.Udp.Event
 import akka.io.{Udp, IO}
 import akka.util.{ByteString, Timeout}
+import com.gossiperl.client.actors.ActorRegistry
 import com.gossiperl.client.thrift.DigestExit
 import com.gossiperl.client.{GossiperlProxyProtocol, Supervisor, OverlayConfiguration}
 import com.gossiperl.client.encryption.Aes256
@@ -24,7 +25,7 @@ object UdpTransportProtocol {
   case class DigestExitAck( p: Promise[ActorRef] ) extends Event
 }
 
-class UdpTransport( val configuration: OverlayConfiguration ) extends Actor with ActorLogging {
+class UdpTransport( val configuration: OverlayConfiguration ) extends ActorRegistry with ActorLogging {
 
   val address = new InetSocketAddress( "127.0.0.1", configuration.clientPort )
   val destination = new InetSocketAddress( "127.0.0.1", configuration.overlayPort )
@@ -51,10 +52,7 @@ class UdpTransport( val configuration: OverlayConfiguration ) extends Actor with
       Try {
         val decrypted = encryption.decrypt( data.toArray )
         val result = serializer.deserialize( decrypted )
-        context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}/${configuration.overlayName}-messaging") resolveOne() onComplete {
-          case Success(a)  => a ! IncomingData( result )
-          case Failure(ex) => log.warning("Could not offer incoming data. Messaging not found.")
-        }
+        !:( s"${configuration.overlayName}-messaging", IncomingData( result ) )
       } recover {
         case ex => log.error("Error while processing incoming data.", ex)
       }
@@ -77,10 +75,7 @@ class UdpTransport( val configuration: OverlayConfiguration ) extends Actor with
       } recover {
         case ex =>
           log.error(s"There was an error while sending digest $digest.", ex)
-          context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-            case Success(a) => a ! GossiperlProxyProtocol.Error( configuration, ex )
-            case Failure(_) => log.error("Could not notify send error. No proxy.")
-          }
+          !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, ex ))
       }
     case SendCustom(digestType, fields) =>
       Try {
@@ -90,10 +85,7 @@ class UdpTransport( val configuration: OverlayConfiguration ) extends Actor with
       } recover {
         case ex =>
           log.error(s"There was an error while sending custom digest $digestType.", ex)
-          context.system.actorSelection(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy") resolveOne() onComplete {
-            case Success(a) => a ! GossiperlProxyProtocol.Error( configuration, ex )
-            case Failure(_) => log.error("Could not notify custom send error. No proxy.")
-          }
+          !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, ex ))
       }
   }
 
