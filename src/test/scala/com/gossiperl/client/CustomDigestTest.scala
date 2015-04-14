@@ -3,8 +3,6 @@ package com.gossiperl.client
 import com.gossiperl.client.serialization.{DeserializeResultCustomOK, CustomDigestField, Serializer}
 import com.typesafe.scalalogging.slf4j.LazyLogging
 import org.scalatest._
-import org.scalatest.concurrent.AsyncAssertions
-import org.scalatest.time.{Millis, Seconds, Span}
 
 class CustomDigestTest  extends FeatureSpec with GivenWhenThen with ShouldMatchers with GossiperlClient with LazyLogging {
 
