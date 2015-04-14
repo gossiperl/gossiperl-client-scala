@@ -66,7 +66,7 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
   startWith(ClientStateDisconnected, new StateData(configuration))
   setTimer("Communicate", Tick, 1 second, repeat = true)
 
-  communicate
+
 
   when (ClientStateDisconnected) {
     case Event(AckReceived, currentState) =>
