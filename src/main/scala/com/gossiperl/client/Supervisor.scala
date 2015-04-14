@@ -4,6 +4,8 @@ import akka.actor.SupervisorStrategy.Escalate
 import akka.actor._
 import akka.util.Timeout
 import com.gossiperl.client.actors.ActorRegistry
+import com.gossiperl.client.serialization.CustomDigestField
+import com.gossiperl.client.transport.UdpTransportProtocol
 
 import scala.collection.mutable.{ Map => MutableMap }
 
@@ -28,7 +30,7 @@ object SupervisorProtocol {
 
   case class Unsubscribe(overlayName:String, eventTypes:Seq[String], p:Promise[Option[Seq[String]]]) extends SupervisorAction
 
-  case class Send(overlayName:String, digestType:String, digestData:List[AnyRef]) extends SupervisorAction
+  case class Send(overlayName:String, digestType:String, digestData:Seq[CustomDigestField], p: Promise[Array[Byte]]) extends SupervisorAction
 
   case class Read(digestType:String, binDigest:Array[Byte], digestInfo:List[AnyRef]) extends SupervisorAction
 
@@ -148,8 +150,16 @@ class Supervisor extends ActorRegistry with ActorLogging {
             }
           case None => p.failure( new RuntimeException(s"Overlay $overlayName does not exist.") )
         }
-      case Send(overlayName, digestType, digestData) =>
-        log.info("Sending a digest...")
+      case Send(overlayName, digestType, digestData, p) =>
+        log.info(s"Offering custom digest $digestType")
+        proxyForConfiguration(overlayName) match {
+          case Some(_) =>
+            !:(s"$overlayName-transport", UdpTransportProtocol.SendCustom(digestType, digestData, p) ) onFailure {
+              case ex => p.failure(ex)
+            }
+          case None =>
+            p.failure(new RuntimeException(s"Overlay $overlayName does not exist."))
+        }
       case Read(digestType, binDigest, digestInfo) =>
         log.info("Reading a digest...")
     }

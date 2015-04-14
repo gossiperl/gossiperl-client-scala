@@ -22,8 +22,8 @@ class OverlayConfiguration( val overlayName:String,
 
 class OverlayWorker(val configuration:OverlayConfiguration) extends ActorRegistry with ActorLogging {
 
-  context.actorOf(Props( new State(configuration) ), name = s"${configuration.overlayName}-client-state")
   context.actorOf(Props( new Messaging(configuration) ), name = s"${configuration.overlayName}-messaging")
+  context.actorOf(Props( new State(configuration) ), name = s"${configuration.overlayName}-client-state")
 
   log.debug(s"Overlay ${configuration.overlayName} is running.")
 

@@ -5,8 +5,10 @@ import java.util.UUID
 import akka.actor.{ActorRef, ActorLogging, FSM}
 import akka.util.Timeout
 import com.gossiperl.client.actors.ActorRegistry
-import com.gossiperl.client.thrift.{DigestExit, Digest}
+import com.gossiperl.client.serialization.Serializers
+import com.gossiperl.client.thrift.{DigestUnsubscribe, DigestSubscribe, DigestExit, Digest}
 import com.gossiperl.client.transport.UdpTransportProtocol
+import org.apache.thrift.{TFieldIdEnum, TBase}
 import concurrent.duration._
 import scala.concurrent.Promise
 import scala.util.{Failure, Success, Try}
@@ -63,6 +65,8 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
   log.debug(s"Client state FSM ${configuration.overlayName} is running.")
   startWith(ClientStateDisconnected, new StateData(configuration))
   setTimer("Communicate", Tick, 1 second, repeat = true)
+
+  communicate
 
   when (ClientStateDisconnected) {
     case Event(AckReceived, currentState) =>
@@ -152,12 +156,31 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
     digest.setPort( configuration.clientPort )
     digest.setName( configuration.clientName )
     log.debug(s"Offering digest ${digest.getId}")
-    !:( s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( digest, None ) )
+    !:( s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( digest ) )
   }
 
-  private def subscriptionAction( action : SubscriptionAction, eventTypes : Seq[String] ) : Boolean = {
-    // TODO: implement
-    true
+  private def subscriptionAction( action : SubscriptionAction, eventTypes : Seq[String] ) : Unit = {
+    import scala.collection.JavaConversions._
+    val digest: Serializers.Thrift = action match {
+      case SubscriptionAction.Subscribe =>
+        val digest = new DigestSubscribe()
+        digest.setEvent_types( eventTypes.toList )
+        digest.setHeartbeat( Util.getTimestamp )
+        digest.setId( UUID.randomUUID().toString )
+        digest.setName( configuration.clientName )
+        digest.setSecret( configuration.clientSecret )
+        digest
+      case SubscriptionAction.Unsubscribe =>
+        val digest = new DigestUnsubscribe()
+        digest.setEvent_types( eventTypes.toList )
+        digest.setHeartbeat( Util.getTimestamp )
+        digest.setId( UUID.randomUUID().toString )
+        digest.setName( configuration.clientName )
+        digest.setSecret( configuration.clientSecret )
+        digest
+    }
+    log.debug(s"Offering subscription digest ${digest}")
+    !:( s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( digest ) )
   }
 
 }

@@ -67,7 +67,7 @@ class Messaging(val configuration: OverlayConfiguration) extends ActorRegistry w
     ack.setHeartbeat( Util.getTimestamp )
     ack.setReply_id( digest.getId )
     ack.setMembership( new util.ArrayList[DigestMember]() )
-    !:(s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( ack, None ))
+    !:(s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( ack ))
   }
 
 }

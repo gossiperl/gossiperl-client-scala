@@ -10,7 +10,7 @@ import com.gossiperl.client.actors.ActorRegistry
 import com.gossiperl.client.thrift.DigestExit
 import com.gossiperl.client.{GossiperlProxyProtocol, Supervisor, OverlayConfiguration}
 import com.gossiperl.client.encryption.Aes256
-import com.gossiperl.client.serialization.{DeserializeResult, Serializer, CustomDigestField}
+import com.gossiperl.client.serialization.{Serializers, DeserializeResult, Serializer, CustomDigestField}
 import org.apache.thrift.{TFieldIdEnum, TBase}
 import UdpTransportProtocol._
 import scala.collection.JavaConversions._
@@ -19,8 +19,8 @@ import scala.util.{Failure, Success, Try}
 import concurrent.duration._
 
 object UdpTransportProtocol {
-  case class SendThrift( digest: TBase[_ <: TBase[_,_], _ <: TFieldIdEnum], p: Option[Promise[ActorRef]] )
-  case class SendCustom( digestType: String, digestData: Seq[CustomDigestField] )
+  case class SendThrift( digest: Serializers.Thrift, p: Option[Promise[ActorRef]] = None )
+  case class SendCustom( digestType: String, digestData: Seq[CustomDigestField], p: Promise[Array[Byte]] )
   case class IncomingData( deserializeResult: DeserializeResult )
   case class DigestExitAck( p: Promise[ActorRef] ) extends Event
 }
@@ -77,15 +77,17 @@ class UdpTransport( val configuration: OverlayConfiguration ) extends ActorRegis
           log.error(s"There was an error while sending digest $digest.", ex)
           !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, ex ))
       }
-    case SendCustom(digestType, fields) =>
+    case SendCustom(digestType, fields, p) =>
       Try {
         val serialized = serializer.serializeArbitrary( digestType, fields.toList, configuration.thriftWindowSize )
         val encrypted  = encryption.encrypt( serialized )
         socket ! Udp.Send( ByteString( encrypted ), destination )
+        p.success(encrypted)
       } recover {
         case ex =>
           log.error(s"There was an error while sending custom digest $digestType.", ex)
           !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, ex ))
+          p.failure( ex )
       }
   }
 

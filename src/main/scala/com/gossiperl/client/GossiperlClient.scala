@@ -14,7 +14,7 @@ trait GossiperlClient extends LazyLogging {
   import scala.concurrent.ExecutionContext.Implicits.global
   implicit val timeout = Timeout(1 seconds)
 
-  def withOverlay( configuration: OverlayConfiguration, action: Option[GossiperlProxy] => Unit ):Unit = {
+  def withOverlay( configuration: OverlayConfiguration ) ( action: Option[GossiperlProxy] => Unit ):Unit = {
     system.actorSelection(s"/user/${Supervisor.actorName}").resolveOne( timeout.duration ) onComplete {
       case Success(a) =>
         val p = Promise[GossiperlProxy]

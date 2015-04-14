@@ -4,6 +4,7 @@ import akka.actor.{ActorRef, ActorLogging, Actor}
 import akka.util.Timeout
 import com.gossiperl.client.SupervisorProtocol.SupervisorAction
 import com.gossiperl.client.actors.ActorRegistry
+import com.gossiperl.client.serialization.{Serializer, DeserializeResult, CustomDigestField}
 
 import scala.concurrent.{Promise, Future}
 import scala.util.{Failure, Success}
@@ -106,6 +107,21 @@ class GossiperlProxy( val configuration: OverlayConfiguration, p: Promise[Gossip
         p.failure( ex )
     }
     p.future
+  }
+
+  def send( digestType: String, digestData: Seq[CustomDigestField] ):Future[Array[Byte]] = {
+    val p = Promise[Array[Byte]]
+    action( SupervisorProtocol.Send( configuration.overlayName, digestType, digestData, p ) ) onFailure {
+      case ex =>
+        log.error(s"Custmo digest send failed for digest $digestType. Supervisor not started.", ex)
+        p.failure( ex )
+    }
+    p.future
+  }
+
+  def read( digestType: String, binDigest: Array[Byte], digestInfo: Seq[CustomDigestField] ):DeserializeResult = {
+    import scala.collection.JavaConversions._
+    new Serializer().deserializeArbitrary( digestType, binDigest, digestInfo.toList )
   }
 
   private def action( action: SupervisorAction ):Future[ActorRef] = {
