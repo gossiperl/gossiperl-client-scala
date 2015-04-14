@@ -17,7 +17,7 @@ class ProcessTest extends FeatureSpec with GivenWhenThen with ShouldMatchers wit
   val topics1 = Seq[String]("member_in", "member_out")
   val topics2 = Seq[String]("custom_digest")
 
-  implicit override val patienceConfig = PatienceConfig(timeout = scaled(Span(5, Seconds)), interval = scaled(Span(100, Millis)))
+  implicit override val patienceConfig = PatienceConfig(timeout = scaled(Span(60, Seconds)), interval = scaled(Span(100, Millis)))
 
   feature("Gossiperl Scala client") {
 
