@@ -7,7 +7,7 @@ import com.gossiperl.client.actors.ActorRegistry
 import com.gossiperl.client.serialization.{Serializer, DeserializeResult, CustomDigestField}
 
 import scala.concurrent.{Promise, Future}
-import scala.util.{Failure, Success}
+import scala.util.{Try, Failure, Success}
 
 import concurrent.duration._
 
@@ -119,9 +119,9 @@ class GossiperlProxy( val configuration: OverlayConfiguration, p: Promise[Gossip
     p.future
   }
 
-  def read( digestType: String, binDigest: Array[Byte], digestInfo: Seq[CustomDigestField] ):DeserializeResult = {
+  def read( digestType: String, binDigest: Array[Byte], digestInfo: Seq[CustomDigestField] ):Try[DeserializeResult] = {
     import scala.collection.JavaConversions._
-    new Serializer().deserializeArbitrary( digestType, binDigest, digestInfo.toList )
+    Try[DeserializeResult] { new Serializer().deserializeArbitrary( digestType, binDigest, digestInfo.toList ) }
   }
 
   private def action( action: SupervisorAction ):Future[ActorRef] = {

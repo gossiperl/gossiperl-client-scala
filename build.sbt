@@ -8,12 +8,11 @@ resolvers += "Typesafe Repository" at "http://repo.typesafe.com/typesafe/release
 
 resolvers += Resolver.mavenLocal
 
-libraryDependencies += "com.typesafe.akka" %% "akka-actor" % "2.3.9"
-
-libraryDependencies += "org.scalatest" %% "scalatest" % "2.0" % "test"
-
-libraryDependencies += "com.gossiperl" % "gossiperl-core" % "2.1.0"
-
-libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.1.3"
-
-libraryDependencies += "com.typesafe.scala-logging" %% "scala-logging-slf4j" % "2.1.2"
+libraryDependencies ++= Seq(
+ "org.apache.thrift" % "libthrift" % "0.9.2",
+ "com.typesafe.akka" %% "akka-actor" % "2.3.9",
+ "com.gossiperl" % "gossiperl-core" % "2.1.0",
+ "ch.qos.logback" % "logback-classic" % "1.1.3",
+ "com.typesafe.scala-logging" %% "scala-logging-slf4j" % "2.1.2",
+ "org.scalatest" %% "scalatest" % "2.0" % "test"
+)

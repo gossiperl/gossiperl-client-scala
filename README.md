@@ -86,7 +86,12 @@ If send is successful, the future will return an encrypted digest.
 
 To read a custom digest, assuming that this is the binary envelope data received via `forwarded` listener, it can be read in the following manner:
 
-    Try { proxy.read("expectedDigestType", binaryData, digestInfo) }
+    proxy.read("expectedDigestType", binaryData, digestInfo) match {
+      case Success(result) => result match {
+        case customResult:DeserializeResultCustomOK => // custom data avaialable
+        case anyOther => logger.error(s"There was an error while processing custom read: $anyOther")
+      } 
+    }
 
 Where binary data is `Array[Byte]` buffer of the notification and `digestInfo` has the same format as `digestData` as in the example above.
 
