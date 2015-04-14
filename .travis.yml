@@ -1,0 +1,23 @@
+language: scala
+
+scala:
+   - 2.10.4
+
+sudo: true
+
+before_install:
+  - sudo apt-get update
+  - sudo apt-get install wget curl jq maven
+  - wget https://github.com/gossiperl/gossiperl-core-jvm/releases/download/2.1.0/gossiperl-core-2.1.0.jar
+  - mvn install:install-file -Dfile=gossiperl-core-2.1.0.jar -DgroupId=com.gossiperl -DartifactId=gossiperl-core -Dversion=2.1.0 -Dpackaging=jar
+  - rm -Rf gossiperl-core-2.1.0.jar
+  - wget https://github.com/gossiperl/gossiperl/releases/download/1.3.3/gossiperl-1.3.3_all.deb
+  - sudo dpkg -i gossiperl-1.3.3_all.deb
+  - sudo /etc/gossiperl/start-and-wait.sh
+  - sudo /etc/gossiperl/test-overlay.sh
+
+script:
+   - sbt ++$TRAVIS_SCALA_VERSION test
+
+notifications:
+  email: false
