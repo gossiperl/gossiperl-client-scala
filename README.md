@@ -38,8 +38,9 @@ To use a custom listener:
     withOverlay( config ) {
       case Some(proxy) =>
         proxy.event {
-          case GossiperlProxyProtocol...( data ) =>
-          case GossiperlProxyProtocol...( data ) =>
+          case GossiperlProxyProtocol.Connected( data ) =>
+          case GossiperlProxyProtocol.Disconnected( data ) =>
+          ...
         }
       case None => logger.error(s"Could not load proxy for $config, supervisor isn't running.")
     }
@@ -50,11 +51,11 @@ A client may be connected to multiple overlays.
 
 Subscribing:
 
-    proxy.subscribe( events: Seq[String ):Future[ Option[ Seq[ String ] ] ]
+    proxy.subscribe( events: Seq[String] ):Future[ Option[ Seq[ String ] ] ]
 
 Unsubscribing:
 
-    proxy.unsubscribe( events: Seq[String ):Future[ Option[ Seq[ String ] ] ]
+    proxy.unsubscribe( events: Seq[String] ):Future[ Option[ Seq[ String ] ] ]
 
 ## Disconnecting from an overlay
 
@@ -77,7 +78,7 @@ Unsubscribing:
     String overlayName = "gossiper_overlay_remote";
     val digestData = Seq[CustomDigestField](
                             new CustomDigestField("field_name", "some value for the field", 1),
-                            new CustomDigestField("integer_field", 1234, 2) )
+                            new CustomDigestField("integer_field", 1234L, 2) )
     proxy.send( "customDigestType", digestData ): Future[Array[Byte]]
 
 If send is successful, the future will return an encrypted digest.
