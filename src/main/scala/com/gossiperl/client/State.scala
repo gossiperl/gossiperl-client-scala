@@ -4,11 +4,10 @@ import java.util.UUID
 
 import akka.actor.{ActorRef, ActorLogging, FSM}
 import akka.util.Timeout
-import com.gossiperl.client.actors.ActorRegistry
+import com.gossiperl.client.actors.ActorEx
 import com.gossiperl.client.serialization.Serializers
 import com.gossiperl.client.thrift.{DigestUnsubscribe, DigestSubscribe, DigestExit, Digest}
 import com.gossiperl.client.transport.UdpTransportProtocol
-import org.apache.thrift.{TFieldIdEnum, TBase}
 import concurrent.duration._
 import scala.concurrent.Promise
 import scala.util.{Failure, Success, Try}
@@ -51,7 +50,7 @@ class StateData( val configuration:OverlayConfiguration,
   }
 }
 
-class State(val configuration: OverlayConfiguration) extends FSM[ClientState, StateData] with ActorRegistry with ActorLogging {
+class State(val configuration: OverlayConfiguration) extends FSM[ClientState, StateData] with ActorEx with ActorLogging {
 
   implicit val timeout = Timeout(1 seconds)
   import scala.concurrent.ExecutionContext.Implicits.global
@@ -78,6 +77,7 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
 
   when (ClientStateConnected) {
     case Event(AckReceived, currentState) =>
+      log.debug("Received an ACK")
       stay using new StateData(configuration, currentState.subscriptions, System.currentTimeMillis)
     case Event(Tick, lastKnownState) =>
       communicate
@@ -121,7 +121,7 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
       // handle state promise
       val p2 = Promise[ActorRef]
       log.debug("Offering DigestExit.")
-      !:( s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( digest, Some( p2 ) ) ) onFailure {
+      !:( s"/user/${Supervisor.actorName}/${configuration.overlayName}/transport", UdpTransportProtocol.SendThrift( digest, Some( p2 ) ) ) onFailure {
         case ex =>
           log.error(s"Could not send digest exit. Messaging transport not found. Proceeding with shutdown.", ex)
           p.failure(ex)
@@ -142,10 +142,10 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
   onTransition {
     case ClientStateDisconnected -> ClientStateConnected =>
       log.debug(s"Connected -> ${nextStateData}.")
-      !:( s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Connected( configuration ) )
+      !:( s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy", GossiperlProxyProtocol.Connected( configuration ) )
     case ClientStateConnected -> ClientStateDisconnected =>
       log.debug("Connection lost.")
-      !:( s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Disconnected( configuration ) )
+      !:( s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy", GossiperlProxyProtocol.Disconnected( configuration ) )
   }
 
   private def communicate():Unit = {
@@ -156,7 +156,7 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
     digest.setPort( configuration.clientPort )
     digest.setName( configuration.clientName )
     log.debug(s"Offering digest ${digest.getId}")
-    !:( s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( digest ) )
+    !:( s"/user/${Supervisor.actorName}/${configuration.overlayName}/transport", UdpTransportProtocol.SendThrift( digest ) )
   }
 
   private def subscriptionAction( action : SubscriptionAction, eventTypes : Seq[String] ) : Unit = {
@@ -180,7 +180,7 @@ class State(val configuration: OverlayConfiguration) extends FSM[ClientState, St
         digest
     }
     log.debug(s"Offering subscription digest ${digest}")
-    !:( s"${configuration.overlayName}-transport", UdpTransportProtocol.SendThrift( digest ) )
+    !:( s"/user/${Supervisor.actorName}/${configuration.overlayName}/transport", UdpTransportProtocol.SendThrift( digest ) )
   }
 
 }
