@@ -1,13 +1,13 @@
 package com.gossiperl.client
 
-import akka.actor.{ActorRef, ActorLogging, Actor}
+import akka.actor.{ActorRef, ActorLogging}
 import akka.util.Timeout
 import com.gossiperl.client.SupervisorProtocol.SupervisorAction
-import com.gossiperl.client.actors.ActorRegistry
+import com.gossiperl.client.actors.ActorEx
 import com.gossiperl.client.serialization.{Serializer, DeserializeResult, CustomDigestField}
 
 import scala.concurrent.{Promise, Future}
-import scala.util.{Try, Failure, Success}
+import scala.util.Try
 
 import concurrent.duration._
 
@@ -24,7 +24,7 @@ object GossiperlProxyProtocol {
   case class ShutdownRequest( p: Promise[ActorRef] )
 }
 
-class GossiperlProxy( val configuration: OverlayConfiguration, p: Promise[GossiperlProxy] ) extends ActorRegistry with ActorLogging {
+class GossiperlProxy( val configuration: OverlayConfiguration, p: Promise[GossiperlProxy] ) extends ActorEx with ActorLogging {
 
   import scala.concurrent.ExecutionContext.Implicits.global
   implicit val timeout = Timeout(1 seconds)
@@ -113,7 +113,7 @@ class GossiperlProxy( val configuration: OverlayConfiguration, p: Promise[Gossip
     val p = Promise[Array[Byte]]
     action( SupervisorProtocol.Send( configuration.overlayName, digestType, digestData, p ) ) onFailure {
       case ex =>
-        log.error(s"Custmo digest send failed for digest $digestType. Supervisor not started.", ex)
+        log.error(s"Custom digest send failed for digest $digestType. Supervisor not started.", ex)
         p.failure( ex )
     }
     p.future
@@ -125,7 +125,7 @@ class GossiperlProxy( val configuration: OverlayConfiguration, p: Promise[Gossip
   }
 
   private def action( action: SupervisorAction ):Future[ActorRef] = {
-    !:( Supervisor.actorName, action )
+    !:( s"/user/${Supervisor.actorName}", action )
   }
 
 }

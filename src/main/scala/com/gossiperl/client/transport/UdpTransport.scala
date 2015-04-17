@@ -2,20 +2,19 @@ package com.gossiperl.client.transport
 
 import java.net.InetSocketAddress
 
-import akka.actor.{ActorRef, ActorLogging, Actor}
+import akka.actor.{ActorRef, ActorLogging}
 import akka.io.Udp.Event
 import akka.io.{Udp, IO}
 import akka.util.{ByteString, Timeout}
-import com.gossiperl.client.actors.ActorRegistry
+import com.gossiperl.client.actors.ActorEx
 import com.gossiperl.client.thrift.DigestExit
-import com.gossiperl.client.{GossiperlProxyProtocol, Supervisor, OverlayConfiguration}
+import com.gossiperl.client.{Supervisor, GossiperlProxyProtocol, OverlayConfiguration}
 import com.gossiperl.client.encryption.Aes256
 import com.gossiperl.client.serialization.{Serializers, DeserializeResult, Serializer, CustomDigestField}
-import org.apache.thrift.{TFieldIdEnum, TBase}
 import UdpTransportProtocol._
 import scala.collection.JavaConversions._
 import scala.concurrent.Promise
-import scala.util.{Failure, Success, Try}
+import scala.util.Try
 import concurrent.duration._
 
 object UdpTransportProtocol {
@@ -25,7 +24,7 @@ object UdpTransportProtocol {
   case class DigestExitAck( p: Promise[ActorRef] ) extends Event
 }
 
-class UdpTransport( val configuration: OverlayConfiguration ) extends ActorRegistry with ActorLogging {
+class UdpTransport( val configuration: OverlayConfiguration ) extends ActorEx with ActorLogging {
 
   val address = new InetSocketAddress( "127.0.0.1", configuration.clientPort )
   val destination = new InetSocketAddress( "127.0.0.1", configuration.overlayPort )
@@ -38,7 +37,6 @@ class UdpTransport( val configuration: OverlayConfiguration ) extends ActorRegis
   IO(Udp) ! Udp.Bind(self, address)
 
   implicit val timeout = Timeout(1 seconds)
-  import scala.concurrent.ExecutionContext.Implicits.global
 
   log.debug(s"Messaging transport for overlay ${configuration.overlayName} is running.")
 
@@ -52,7 +50,7 @@ class UdpTransport( val configuration: OverlayConfiguration ) extends ActorRegis
       Try {
         val decrypted = encryption.decrypt( data.toArray )
         val result = serializer.deserialize( decrypted )
-        !:( s"${configuration.overlayName}-messaging", IncomingData( result ) )
+        !:( s"/user/${Supervisor.actorName}/${configuration.overlayName}/messaging", IncomingData( result ) )
       } recover {
         case ex => log.error("Error while processing incoming data.", ex)
       }
@@ -75,7 +73,7 @@ class UdpTransport( val configuration: OverlayConfiguration ) extends ActorRegis
       } recover {
         case ex =>
           log.error(s"There was an error while sending digest $digest.", ex)
-          !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, ex ))
+          !:(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, ex ))
       }
     case SendCustom(digestType, fields, p) =>
       Try {
@@ -86,7 +84,7 @@ class UdpTransport( val configuration: OverlayConfiguration ) extends ActorRegis
       } recover {
         case ex =>
           log.error(s"There was an error while sending custom digest $digestType.", ex)
-          !:(s"${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, ex ))
+          !:(s"/user/${Supervisor.actorName}/${configuration.overlayName}-proxy", GossiperlProxyProtocol.Error( configuration, ex ))
           p.failure( ex )
       }
   }
