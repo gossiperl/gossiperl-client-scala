@@ -66,29 +66,29 @@ Listening to events:
 
 Subscribing:
 
-    proxy.subscribe( events: Seq[String] ):Future[Seq[String]]
+    subscribe( events: Seq[String] ):Future[Seq[String]]
     
 If the request was successfully accepted, the future will complete with the same list of event types. Once the subscriptions are confirmed by the overlay, a `GossiperlClientProtocol.SubscribeAck` will be delivered to the client.
 
 Unsubscribing:
 
-    proxy.unsubscribe( events: Seq[String] ):Future[Seq[ String]]
+    unsubscribe( events: Seq[String] ):Future[Seq[ String]]
 
 If the request was successfully accepted, the future will complete with the same list of event types. Once the unsubscription are confirmed by the overlay, a `GossiperlClientProtocol.UnsubscribeAck` will be delivered to the client.
 
 ## Disconnecting from an overlay
 
-    proxy.disconnect
+    disconnect
 
 ## Additional operations
 
 ### Checking current client state
 
-    proxy.currentState: Future[com.gossiperl.client.FSMState.ClientState]
+    currentState: Future[com.gossiperl.client.FSMState.ClientState]
 
 ### Get the list of current subscriptions
 
-    proxy.subscriptions: Future[Seq[String]]
+    subscriptions: Future[Seq[String]]
 
 ### Sending arbitrary digests
 
@@ -98,7 +98,7 @@ If the request was successfully accepted, the future will complete with the same
     val digestData = Seq[CustomDigestField](
                             new CustomDigestField("field_name", "some value for the field", 1),
                             new CustomDigestField("integer_field", 1234L, 2) )
-    proxy.send( "customDigestType", digestData ): :Future[Tuple2[String, Seq[CustomDigestField]]]
+    send( "customDigestType", digestData ): :Future[Tuple2[String, Seq[CustomDigestField]]]
 
 If send is successful, the future will respond with the input.
 
