@@ -72,7 +72,7 @@ If the request was successfully accepted, the future will complete with the same
 
 Unsubscribing:
 
-    unsubscribe( events: Seq[String] ):Future[Seq[ String]]
+    unsubscribe( events: Seq[String] ):Future[Seq[String]]
 
 If the request was successfully accepted, the future will complete with the same list of event types. Once the unsubscription are confirmed by the overlay, a `GossiperlClientProtocol.UnsubscribeAck` will be delivered to the client.
 
@@ -98,7 +98,7 @@ If the request was successfully accepted, the future will complete with the same
     val digestData = Seq[CustomDigestField](
                             new CustomDigestField("field_name", "some value for the field", 1),
                             new CustomDigestField("integer_field", 1234L, 2) )
-    send( "customDigestType", digestData ): :Future[Tuple2[String, Seq[CustomDigestField]]]
+    send( "customDigestType", digestData ): Future[Tuple2[String, Seq[CustomDigestField]]]
 
 If send is successful, the future will respond with the input.
 
