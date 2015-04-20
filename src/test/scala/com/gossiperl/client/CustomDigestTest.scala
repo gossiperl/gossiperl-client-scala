@@ -4,7 +4,7 @@ import com.gossiperl.client.serialization.{DeserializeResultCustomOK, CustomDige
 import com.typesafe.scalalogging.slf4j.LazyLogging
 import org.scalatest._
 
-class CustomDigestTest  extends FeatureSpec with GivenWhenThen with ShouldMatchers with GossiperlClient with LazyLogging {
+class CustomDigestTest extends FeatureSpec with GivenWhenThen with ShouldMatchers with LazyLogging {
 
   import scala.collection.JavaConversions._
 

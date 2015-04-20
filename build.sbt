@@ -1,12 +1,13 @@
 name := "gossiperl-client-scala"
 
-version := "1.0.1"
+version := "1.1.0"
 
-scalaVersion := "2.10.4"
+scalaVersion := "2.10.5"
 
-resolvers += "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/"
-
-resolvers += Resolver.mavenLocal
+resolvers ++= Seq(
+  "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/",
+  Resolver.mavenLocal
+)
 
 libraryDependencies ++= Seq(
  "org.apache.thrift" % "libthrift" % "0.9.2",
